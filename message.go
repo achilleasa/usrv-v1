@@ -28,6 +28,7 @@ type Message interface {
 	From() string
 	To() string
 	Property() Property
+	CorrelationId() string
 
 	Content() ([]byte, error)
 	SetContent([]byte, error)

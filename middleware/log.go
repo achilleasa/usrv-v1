@@ -14,21 +14,23 @@ func LogRequest(logger *log.Logger, handler usrv.Handler) usrv.Handler {
 			resContent, err := res.Content()
 			if err != nil {
 				logger.Printf(
-					"| %5s | %12d | from: %-20s | to: %-20s | %s |\n",
+					"| %5s | %12d | from: %-20s | to: %-20s | CorrID: %s | %s |\n",
 					"ERROR",
 					time.Since(start).Nanoseconds(),
 					req.From(),
 					req.To(),
+					req.CorrelationId(),
 					len(reqContent),
 					err.Error(),
 				)
 			} else {
 				logger.Printf(
-					"| %5s | %12d | from: %-20s | to: %-20s | reqLen: %5d | resLen: %5d |\n",
+					"| %5s | %12d | from: %-20s | to: %-20s | CorrID: %s | reqLen: %5d | resLen: %5d |\n",
 					"OK",
 					time.Since(start).Nanoseconds(),
 					req.From(),
 					req.To(),
+					req.CorrelationId(),
 					len(reqContent),
 					len(resContent),
 				)

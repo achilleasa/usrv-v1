@@ -4,15 +4,17 @@ import (
 	"fmt"
 
 	"github.com/achilleasa/usrv"
+	"github.com/pborman/uuid"
 )
 
 // The internal message type used by the http transport.
 type memMessage struct {
-	from     string
-	to       string
-	property usrv.Property
-	content  []byte
-	err      error
+	from          string
+	to            string
+	correlationId string
+	property      usrv.Property
+	content       []byte
+	err           error
 
 	isReply   bool
 	replyChan chan usrv.Message
@@ -26,6 +28,9 @@ func (m *memMessage) To() string {
 }
 func (m *memMessage) Property() usrv.Property {
 	return m.property
+}
+func (m *memMessage) CorrelationId() string {
+	return m.correlationId
 }
 func (m *memMessage) Content() ([]byte, error) {
 	return m.content, m.err
@@ -75,10 +80,11 @@ func (t *inMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Mess
 	go func() {
 		// Simulate async request
 		reqMsg := &memMessage{
-			from:     msg.from,
-			to:       msg.to,
-			property: make(usrv.Property, 0),
-			content:  msg.content,
+			from:          msg.from,
+			to:            msg.to,
+			property:      make(usrv.Property, 0),
+			correlationId: msg.correlationId,
+			content:       msg.content,
 			// Reply Channel
 			replyChan: make(chan usrv.Message, 0),
 		}
@@ -101,9 +107,10 @@ func (t *inMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Mess
 // Create a message to be delivered to a target endpoint
 func (t *inMemTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
 	return &memMessage{
-		from:     from,
-		to:       fmt.Sprintf("%s.%s", toService, toEndpoint),
-		property: make(usrv.Property, 0),
+		from:          from,
+		to:            fmt.Sprintf("%s.%s", toService, toEndpoint),
+		property:      make(usrv.Property, 0),
+		correlationId: uuid.New(),
 	}
 }
 
@@ -114,9 +121,10 @@ func (t *inMemTransport) ReplyTo(msg usrv.Message) usrv.Message {
 	}
 
 	return &memMessage{
-		from:     reqMsg.To(),
-		to:       reqMsg.From(),
-		property: make(usrv.Property, 0),
+		from:          reqMsg.To(),
+		to:            reqMsg.From(),
+		property:      make(usrv.Property, 0),
+		correlationId: reqMsg.CorrelationId(),
 		// Copy reply channel from req msg
 		replyChan: reqMsg.replyChan,
 		isReply:   true,

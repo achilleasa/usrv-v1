@@ -10,6 +10,8 @@ import (
 	httpPkg "net/http"
 	"sync"
 
+	"code.google.com/p/go-uuid/uuid"
+
 	"github.com/achilleasa/usrv"
 )
 
@@ -19,11 +21,12 @@ var (
 
 // The internal message type used by the http transport.
 type httpMessage struct {
-	from     string
-	to       string
-	property usrv.Property
-	content  []byte
-	err      error
+	from          string
+	to            string
+	property      usrv.Property
+	correlationId string
+	content       []byte
+	err           error
 
 	isReply   bool
 	replyChan chan usrv.Message
@@ -37,6 +40,9 @@ func (m *httpMessage) To() string {
 }
 func (m *httpMessage) Property() usrv.Property {
 	return m.property
+}
+func (m *httpMessage) CorrelationId() string {
+	return m.correlationId
 }
 func (m *httpMessage) Content() ([]byte, error) {
 	return m.content, m.err
@@ -102,14 +108,16 @@ func (t *httpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Messa
 		bytes, _ := json.Marshal(msg.property)
 		req.Header.Set("X-Usrv-Properties", string(bytes))
 	}
+	req.Header.Set("X-Usrv-CorrelationId", msg.correlationId)
 	req.Header.Set("Referer", msg.from)
 
 	resChan := make(chan usrv.Message, 0)
 	go func() {
 		resMsg := &httpMessage{
-			from:     msg.to,
-			to:       msg.from,
-			property: make(usrv.Property, 0),
+			from:          msg.to,
+			to:            msg.from,
+			property:      make(usrv.Property, 0),
+			correlationId: msg.correlationId,
 		}
 
 		defer func() {
@@ -122,8 +130,6 @@ func (t *httpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Messa
 			resMsg.SetContent(nil, err)
 			return
 		}
-
-		fmt.Printf("Res Headers: %#v\n", res.Header)
 
 		// Parse property header and check for errors
 		propHeader := res.Header.Get("X-Usrv-Properties")
@@ -154,9 +160,10 @@ func (t *httpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Messa
 // Create a message to be delivered to a target endpoint
 func (t *httpTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
 	return &httpMessage{
-		from:     from,
-		to:       fmt.Sprintf("%s/%s", toService, toEndpoint),
-		property: make(usrv.Property, 0),
+		from:          from,
+		to:            fmt.Sprintf("%s/%s", toService, toEndpoint),
+		property:      make(usrv.Property, 0),
+		correlationId: uuid.New(),
 	}
 }
 
@@ -167,9 +174,10 @@ func (t *httpTransport) ReplyTo(msg usrv.Message) usrv.Message {
 	}
 
 	return &httpMessage{
-		from:     reqMsg.To(),
-		to:       reqMsg.From(),
-		property: make(usrv.Property, 0),
+		from:          reqMsg.To(),
+		to:            reqMsg.From(),
+		property:      make(usrv.Property, 0),
+		correlationId: reqMsg.CorrelationId(),
 		// Copy reply channel from req msg
 		replyChan: reqMsg.replyChan,
 		isReply:   true,
@@ -195,10 +203,11 @@ func (t *httpTransport) handleRequest(w httpPkg.ResponseWriter, r *httpPkg.Reque
 	}
 
 	reqMsg := &httpMessage{
-		from:     r.Referer(),
-		to:       r.Host + r.URL.String(),
-		property: make(usrv.Property, 0),
-		content:  content,
+		from:          r.Referer(),
+		to:            r.Host + r.URL.String(),
+		property:      make(usrv.Property, 0),
+		correlationId: r.Header.Get("X-Usrv-CorrelationId"),
+		content:       content,
 		// Reply Channel
 		replyChan: make(chan usrv.Message, 0),
 	}
@@ -222,6 +231,7 @@ func (t *httpTransport) handleRequest(w httpPkg.ResponseWriter, r *httpPkg.Reque
 		w.Header().Set("X-Usrv-Properties", string(bytes))
 	}
 	w.Header().Set("Referer", reqMsg.To())
+	w.Header().Set("X-Usrv-CorrelationId", reqMsg.correlationId)
 	w.Write(content)
 }
 
