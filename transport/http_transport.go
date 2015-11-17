@@ -8,10 +8,10 @@ import (
 	"io"
 	"io/ioutil"
 	httpPkg "net/http"
+	"strconv"
 	"sync"
 
 	"code.google.com/p/go-uuid/uuid"
-
 	"github.com/achilleasa/usrv"
 )
 
@@ -51,7 +51,16 @@ func (m *httpMessage) SetContent(content []byte, err error) {
 	m.content, m.err = content, err
 }
 
-type httpTransport struct {
+type HttpConfig map[string]string
+
+func NewHttpConfig(serverPort int) HttpConfig {
+	return HttpConfig{
+		"port": fmt.Sprint(serverPort),
+	}
+}
+
+type HttpTransport struct {
+	logger   usrv.Logger
 	port     int
 	msgChans map[string]chan usrv.Message
 
@@ -60,18 +69,43 @@ type httpTransport struct {
 	sync.Mutex
 }
 
-func NewHttp(port int) *httpTransport {
-	return &httpTransport{
-		port: port,
-
+func NewHttp() *HttpTransport {
+	return &HttpTransport{
+		logger:   usrv.NullLogger,
+		port:     80,
 		msgChans: make(map[string]chan usrv.Message, 0),
 	}
 }
 
-func (t *httpTransport) Close() error {
+func (t *HttpTransport) SetLogger(logger usrv.Logger) {
+	t.logger = logger
+}
+
+func (t *HttpTransport) Config(params map[string]string) error {
+	needsReset := false
+
+	portVal, exists := params["port"]
+	if exists {
+		port, err := strconv.Atoi(portVal)
+		if err != nil {
+			return err
+		}
+		t.port = port
+		needsReset = true
+	}
+
+	if needsReset {
+		t.logger.Info("Configuration changed", "port", t.port)
+		return t.listen()
+	}
+
 	return nil
 }
-func (t *httpTransport) Bind(service string, endpoint string) (<-chan usrv.Message, error) {
+
+func (t *HttpTransport) Close() error {
+	return nil
+}
+func (t *HttpTransport) Bind(service string, endpoint string) (<-chan usrv.Message, error) {
 	err := t.listen()
 	if err != nil {
 		return nil, err
@@ -82,7 +116,7 @@ func (t *httpTransport) Bind(service string, endpoint string) (<-chan usrv.Messa
 	return t.msgChans[fullPath], nil
 }
 
-func (t *httpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
+func (t *HttpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
 	msg, ok := m.(*httpMessage)
 	if !ok {
 		panic("Unsupported message type")
@@ -158,7 +192,7 @@ func (t *httpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Messa
 }
 
 // Create a message to be delivered to a target endpoint
-func (t *httpTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
+func (t *HttpTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
 	return &httpMessage{
 		from:          from,
 		to:            fmt.Sprintf("%s/%s", toService, toEndpoint),
@@ -167,7 +201,7 @@ func (t *httpTransport) MessageTo(from string, toService string, toEndpoint stri
 	}
 }
 
-func (t *httpTransport) ReplyTo(msg usrv.Message) usrv.Message {
+func (t *HttpTransport) ReplyTo(msg usrv.Message) usrv.Message {
 	reqMsg, ok := msg.(*httpMessage)
 	if !ok {
 		panic("Unsupported message type")
@@ -188,7 +222,7 @@ func (t *httpTransport) ReplyTo(msg usrv.Message) usrv.Message {
 // combination of incoming requests to a bound endpoint. If a match is found,
 // the message will be sent to the matched endpoint's queue; otherwise a 404 will
 // be returned.
-func (t *httpTransport) handleRequest(w httpPkg.ResponseWriter, r *httpPkg.Request) {
+func (t *HttpTransport) handleRequest(w httpPkg.ResponseWriter, r *httpPkg.Request) {
 	// Try to match endpoint
 	endpoint := r.Host + r.URL.String()
 	msgChan, found := t.msgChans[endpoint]
@@ -236,7 +270,7 @@ func (t *httpTransport) handleRequest(w httpPkg.ResponseWriter, r *httpPkg.Reque
 }
 
 // Ensure that the transport is listening for incoming connections.
-func (t *httpTransport) listen() error {
+func (t *HttpTransport) listen() error {
 	t.Lock()
 	defer t.Unlock()
 

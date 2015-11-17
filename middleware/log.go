@@ -1,38 +1,35 @@
 package middleware
 
 import (
-	"log"
 	"time"
 
 	"github.com/achilleasa/usrv"
 )
 
-func LogRequest(logger *log.Logger, handler usrv.Handler) usrv.Handler {
+func LogRequest(logger usrv.Logger, handler usrv.Handler) usrv.Handler {
 	return func(req usrv.Message, res usrv.Message) {
 		defer func(start time.Time) {
 			reqContent, _ := req.Content()
 			resContent, err := res.Content()
 			if err != nil {
-				logger.Printf(
-					"| %5s | %12d | from: %-20s | to: %-20s | CorrID: %s | %s |\n",
-					"ERROR",
-					time.Since(start).Nanoseconds(),
-					req.From(),
-					req.To(),
-					req.CorrelationId(),
-					len(reqContent),
-					err.Error(),
+				logger.Error(
+					"Request failed",
+					"error", err,
+					"time", time.Since(start).Nanoseconds(),
+					"from", req.From(),
+					"to", req.To(),
+					"correlationId", req.CorrelationId(),
+					"req_len", len(reqContent),
 				)
 			} else {
-				logger.Printf(
-					"| %5s | %12d | from: %-20s | to: %-20s | CorrID: %s | reqLen: %5d | resLen: %5d |\n",
-					"OK",
-					time.Since(start).Nanoseconds(),
-					req.From(),
-					req.To(),
-					req.CorrelationId(),
-					len(reqContent),
-					len(resContent),
+				logger.Info(
+					"Processed request",
+					"time", time.Since(start).Nanoseconds(),
+					"from", req.From(),
+					"to", req.To(),
+					"correlationId", req.CorrelationId(),
+					"req_len", len(reqContent),
+					"res_len", len(resContent),
 				)
 			}
 		}(time.Now())

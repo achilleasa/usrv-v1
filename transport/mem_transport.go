@@ -39,26 +39,36 @@ func (m *memMessage) SetContent(content []byte, err error) {
 	m.content, m.err = content, err
 }
 
-type inMemTransport struct {
+type InMemTransport struct {
+	logger   usrv.Logger
 	msgChans map[string]chan usrv.Message
 }
 
-func NewInMemory() *inMemTransport {
-	return &inMemTransport{
+func NewInMemory() *InMemTransport {
+	return &InMemTransport{
+		logger:   usrv.NullLogger,
 		msgChans: make(map[string]chan usrv.Message, 0),
 	}
 }
 
-func (t *inMemTransport) Close() error {
+func (t *InMemTransport) SetLogger(logger usrv.Logger) {
+	t.logger = logger
+}
+
+func (t *InMemTransport) Config(params map[string]string) error {
 	return nil
 }
-func (t *inMemTransport) Bind(service string, endpoint string) (<-chan usrv.Message, error) {
+
+func (t *InMemTransport) Close() error {
+	return nil
+}
+func (t *InMemTransport) Bind(service string, endpoint string) (<-chan usrv.Message, error) {
 	fullPath := fmt.Sprintf("%s.%s", service, endpoint)
 	t.msgChans[fullPath] = make(chan usrv.Message, 0)
 	return t.msgChans[fullPath], nil
 }
 
-func (t *inMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
+func (t *InMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
 	msg, ok := m.(*memMessage)
 	if !ok {
 		panic("Unsupported message type")
@@ -105,7 +115,7 @@ func (t *inMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Mess
 }
 
 // Create a message to be delivered to a target endpoint
-func (t *inMemTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
+func (t *InMemTransport) MessageTo(from string, toService string, toEndpoint string) usrv.Message {
 	return &memMessage{
 		from:          from,
 		to:            fmt.Sprintf("%s.%s", toService, toEndpoint),
@@ -114,7 +124,7 @@ func (t *inMemTransport) MessageTo(from string, toService string, toEndpoint str
 	}
 }
 
-func (t *inMemTransport) ReplyTo(msg usrv.Message) usrv.Message {
+func (t *InMemTransport) ReplyTo(msg usrv.Message) usrv.Message {
 	reqMsg, ok := msg.(*memMessage)
 	if !ok {
 		panic("Unsupported message type")

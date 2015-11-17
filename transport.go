@@ -2,6 +2,12 @@ package usrv
 
 type Transport interface {
 
+	// Attach a logger to the transport.
+	SetLogger(logger Logger)
+
+	// Configure the transport.
+	Config(params map[string]string) error
+
 	// Close the transport.
 	Close() error
 
