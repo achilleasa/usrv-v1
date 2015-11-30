@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"encoding/json"
+	"errors"
+	"reflect"
 
 	"github.com/achilleasa/usrv"
 )
-
-import "reflect"
 
 // Given a handler method that returns `error` and accepts two pointer arguments,
 // each of the arguments pointing to a user-defined structure that defines the
@@ -42,7 +42,11 @@ func JsonHandler(handler interface{}, recoverFromPanic bool) usrv.Handler {
 		if recoverFromPanic {
 			defer func() {
 				if err := recover(); err != nil {
-					res.SetContent(nil, err.(error))
+					if e, ok := err.(error); ok {
+						res.SetContent(nil, e)
+					} else {
+						res.SetContent(nil, errors.New(err.(string)))
+					}
 				}
 			}()
 		}

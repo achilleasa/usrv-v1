@@ -18,7 +18,7 @@ func LogRequest(logger usrv.Logger, handler usrv.Handler) usrv.Handler {
 					"time", time.Since(start).Nanoseconds(),
 					"from", req.From(),
 					"to", req.To(),
-					"correlationId", req.CorrelationId(),
+					"correlation_id", req.CorrelationId(),
 					"req_len", len(reqContent),
 				)
 			} else {
@@ -27,7 +27,7 @@ func LogRequest(logger usrv.Logger, handler usrv.Handler) usrv.Handler {
 					"time", time.Since(start).Nanoseconds(),
 					"from", req.From(),
 					"to", req.To(),
-					"correlationId", req.CorrelationId(),
+					"correlation_id", req.CorrelationId(),
 					"req_len", len(reqContent),
 					"res_len", len(resContent),
 				)
