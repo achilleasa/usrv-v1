@@ -13,13 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/tylerb/graceful.v1"
+
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/achilleasa/usrv"
 )
 
 var (
-	defaultDialer = &net.Dialer{Timeout: 1000 * time.Millisecond}
-	httpClient    = &httpPkg.Client{
+	errListenerClosed = errors.New("Listener stopped")
+	defaultDialer     = &net.Dialer{Timeout: 1000 * time.Millisecond}
+	httpClient        = &httpPkg.Client{
 		Transport: &httpPkg.Transport{
 			Dial:  defaultDialer.Dial,
 			Proxy: httpPkg.ProxyFromEnvironment,
@@ -74,22 +77,38 @@ func NewHttpConfig(serverPort int) HttpConfig {
 	}
 }
 
-type HttpTransport struct {
-	logger   usrv.Logger
-	port     int
-	msgChans map[string]chan usrv.Message
+func NewHttpsConfig(serverPort int, certFile, certKeyFile string) HttpConfig {
+	return HttpConfig{
+		"port":        fmt.Sprint(serverPort),
+		"certFile":    certFile,
+		"certKeyFile": certKeyFile,
+	}
+}
 
-	// Are we listening for requests? Server-side only
-	listening bool
+type HttpTransport struct {
+	logger      usrv.Logger
+	port        int
+	certFile    string
+	certKeyFile string
+	msgChans    map[string]chan usrv.Message
+
+	// The protocol for outgoing requests (http or https if TLS is enabled)
+	protocol string
+
+	server *graceful.Server
+
+	// A mutex for synchronized access to the server instance
 	sync.Mutex
 }
 
 func NewHttp() *HttpTransport {
-	return &HttpTransport{
+	t := &HttpTransport{
 		logger:   usrv.NullLogger,
 		port:     80,
+		protocol: "http://",
 		msgChans: make(map[string]chan usrv.Message, 0),
 	}
+	return t
 }
 
 func (t *HttpTransport) SetLogger(logger usrv.Logger) {
@@ -98,9 +117,12 @@ func (t *HttpTransport) SetLogger(logger usrv.Logger) {
 
 func (t *HttpTransport) Config(params map[string]string) error {
 	needsReset := false
+	t.certFile = ""
+	t.certKeyFile = ""
+	t.protocol = "http://"
 
-	portVal, exists := params["port"]
-	if exists {
+	portVal, portDefined := params["port"]
+	if portDefined {
 		port, err := strconv.Atoi(portVal)
 		if err != nil {
 			return err
@@ -109,8 +131,23 @@ func (t *HttpTransport) Config(params map[string]string) error {
 		needsReset = true
 	}
 
+	certFile := params["certFile"]
+	certKeyFile := params["certKeyFile"]
+	if certFile != "" && certKeyFile != "" {
+		t.certFile = certFile
+		t.certKeyFile = certKeyFile
+
+		// If port is not defined, use 443 as the default
+		if !portDefined {
+			t.port = 443
+		}
+
+		t.protocol = "https://"
+		needsReset = true
+	}
+
 	if needsReset {
-		t.logger.Info("Configuration changed", "port", t.port)
+		t.logger.Info("Configuration changed", "port", t.port, "protocol", t.protocol)
 		return t.listen()
 	}
 
@@ -118,8 +155,22 @@ func (t *HttpTransport) Config(params map[string]string) error {
 }
 
 func (t *HttpTransport) Close() error {
+	t.Lock()
+	defer t.Unlock()
+
+	if t.server == nil {
+		return nil
+	}
+
+	// Close server and wait for connections to drain
+	stopChan := t.server.StopChan()
+	t.server.Stop(1 * time.Second)
+	<-stopChan
+	t.server = nil
+
 	return nil
 }
+
 func (t *HttpTransport) Bind(service string, endpoint string) (<-chan usrv.Message, error) {
 	err := t.listen()
 	if err != nil {
@@ -149,7 +200,7 @@ func (t *HttpTransport) Send(m usrv.Message, timeout time.Duration, expectReply 
 		body = bytes.NewReader(content)
 	}
 
-	req, err := httpPkg.NewRequest("POST", "http://"+msg.to, body)
+	req, err := httpPkg.NewRequest("POST", t.protocol+msg.to, body)
 	if err != nil {
 		panic(err)
 	}
@@ -316,21 +367,35 @@ func (t *HttpTransport) listen() error {
 	t.Lock()
 	defer t.Unlock()
 
-	if t.listening {
+	// Already listening
+	if t.server != nil {
 		return nil
 	}
 
-	go func() {
-		err := httpPkg.ListenAndServe(
-			fmt.Sprintf(":%d", t.port),
-			httpPkg.HandlerFunc(t.handleRequest),
-		)
+	addr := fmt.Sprintf(":%d", t.port)
+	t.server = &graceful.Server{
+		Server: &httpPkg.Server{
+			Addr:    addr,
+			Handler: httpPkg.HandlerFunc(t.handleRequest),
+		},
+	}
 
-		if err != nil {
-			panic(err)
-		}
+	var err error
+	var listener net.Listener
+	if t.certFile != "" && t.certKeyFile != "" {
+		listener, err = t.server.ListenTLS(t.certFile, t.certKeyFile)
+	} else {
+		listener, err = net.Listen("tcp", addr)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		t.server.Serve(listener)
+		t.logger.Error("Http server exited", "err", err)
 	}()
 
-	t.listening = true
 	return nil
 }
