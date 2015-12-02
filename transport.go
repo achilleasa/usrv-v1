@@ -1,5 +1,7 @@
 package usrv
 
+import "time"
+
 type Transport interface {
 
 	// Attach a logger to the transport.
@@ -15,7 +17,7 @@ type Transport interface {
 	Bind(service string, endpoint string) (<-chan Message, error)
 
 	// Send a message.
-	Send(message Message, expectReply bool) <-chan Message
+	Send(message Message, timeout time.Duration, expectReply bool) <-chan Message
 
 	// Create a message to be delivered to a target endpoint
 	MessageTo(from string, toService string, toEndpoint string) Message

@@ -7,17 +7,32 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	httpPkg "net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/achilleasa/usrv"
 )
 
 var (
-	httpClient = &httpPkg.Client{}
+	defaultDialer = &net.Dialer{Timeout: 1000 * time.Millisecond}
+	httpClient    = &httpPkg.Client{
+		Transport: &httpPkg.Transport{
+			Dial:  defaultDialer.Dial,
+			Proxy: httpPkg.ProxyFromEnvironment,
+		},
+	}
 )
+
+// The DefaultTransport used by the http package implements this
+// method but the Transport interface does not expose it. This
+// is a hack-y way to access it.
+type requestCanceler interface {
+	CancelRequest(*httpPkg.Request)
+}
 
 // The internal message type used by the http transport.
 type httpMessage struct {
@@ -116,7 +131,7 @@ func (t *HttpTransport) Bind(service string, endpoint string) (<-chan usrv.Messa
 	return t.msgChans[fullPath], nil
 }
 
-func (t *HttpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
+func (t *HttpTransport) Send(m usrv.Message, timeout time.Duration, expectReply bool) <-chan usrv.Message {
 	msg, ok := m.(*httpMessage)
 	if !ok {
 		panic("Unsupported message type")
@@ -159,9 +174,36 @@ func (t *HttpTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Messa
 			close(resChan)
 		}()
 
+		// If a timeout is specified, set up a timer to cancel the request
+		if timeout > 0 {
+			time.AfterFunc(timeout, func() {
+				if canceler, ok := httpClient.Transport.(requestCanceler); ok {
+					canceler.CancelRequest(req)
+				}
+			})
+		}
+
 		res, err := httpClient.Do(req)
 		if err != nil {
-			resMsg.SetContent(nil, err)
+			t.logger.Error(
+				"Http request failed",
+				"from", msg.from,
+				"to", msg.to,
+				"err", err.Error(),
+			)
+			resMsg.SetContent(nil, usrv.ErrServiceUnavailable)
+			return
+		}
+
+		// Handle non-2XX codes
+		if res.StatusCode < 200 || res.StatusCode > 299 {
+			t.logger.Error(
+				"Http request failed",
+				"from", msg.from,
+				"to", msg.to,
+				"status", res.StatusCode,
+			)
+			resMsg.SetContent(nil, usrv.ErrServiceUnavailable)
 			return
 		}
 

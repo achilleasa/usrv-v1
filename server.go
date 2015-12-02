@@ -98,7 +98,7 @@ func (srv *Server) serve(endpoint serverEndpoint) {
 			go func(req Message) {
 				res := srv.transport.ReplyTo(req)
 				endpoint.handler(req, res)
-				srv.transport.Send(res, false)
+				srv.transport.Send(res, 0, false)
 
 			}(msg)
 		}

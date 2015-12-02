@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/achilleasa/usrv"
 	"github.com/pborman/uuid"
@@ -68,7 +69,7 @@ func (t *InMemTransport) Bind(service string, endpoint string) (<-chan usrv.Mess
 	return t.msgChans[fullPath], nil
 }
 
-func (t *InMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Message {
+func (t *InMemTransport) Send(m usrv.Message, timeout time.Duration, expectReply bool) <-chan usrv.Message {
 	msg, ok := m.(*memMessage)
 	if !ok {
 		panic("Unsupported message type")
@@ -78,12 +79,6 @@ func (t *InMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Mess
 		msg.replyChan <- msg
 		close(msg.replyChan)
 		return nil
-	}
-
-	// Try to match endpoint
-	msgChan, found := t.msgChans[msg.to]
-	if !found {
-		panic("Endpoint not found")
 	}
 
 	resChan := make(chan usrv.Message, 0)
@@ -102,9 +97,35 @@ func (t *InMemTransport) Send(m usrv.Message, expectReply bool) <-chan usrv.Mess
 			reqMsg.property[k] = v
 		}
 
-		// Send to the bound endpoint listener and wait for reply
-		msgChan <- reqMsg
-		resMsg := <-reqMsg.replyChan
+		var resMsg usrv.Message
+
+		// Try to match endpoint
+		msgChan, found := t.msgChans[msg.to]
+		if !found {
+			t.logger.Error(
+				"Unknown destination",
+				"from", msg.from,
+				"to", msg.to,
+			)
+			resMsg = t.ReplyTo(reqMsg)
+			resMsg.SetContent(nil, usrv.ErrServiceUnavailable)
+		} else {
+
+			var timeoutChan <-chan time.Time
+			if timeout > 0 {
+				timeoutChan = time.After(timeout)
+			}
+
+			// Send to the bound endpoint listener and wait for reply
+			msgChan <- reqMsg
+
+			select {
+			case resMsg = <-reqMsg.replyChan:
+			case <-timeoutChan:
+				resMsg = t.ReplyTo(reqMsg)
+				resMsg.SetContent(nil, usrv.ErrServiceUnavailable)
+			}
+		}
 
 		// Just pipe the res msg to the res chan
 		resChan <- resMsg

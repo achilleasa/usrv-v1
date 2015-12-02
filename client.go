@@ -1,5 +1,7 @@
 package usrv
 
+import "time"
+
 type Client struct {
 	service   string
 	transport Transport
@@ -16,6 +18,6 @@ func (c *Client) NewMessage(from string, toEndpoint string) Message {
 	return c.transport.MessageTo(from, c.service, toEndpoint)
 }
 
-func (c *Client) Send(msg Message) <-chan Message {
-	return c.transport.Send(msg, true)
+func (c *Client) Send(msg Message, timeout time.Duration) <-chan Message {
+	return c.transport.Send(msg, timeout, true)
 }
