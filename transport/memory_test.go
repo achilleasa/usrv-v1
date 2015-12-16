@@ -70,8 +70,8 @@ func TestMemoryTransportTimeouts(t *testing.T) {
 
 	resMsg := <-resChan
 	content, err := resMsg.Content()
-	if err != usrv.ErrServiceUnavailable {
-		t.Fatalf("Expected to get ErrServiceUnavailable; got %v", err)
+	if err != usrv.ErrTimeout {
+		t.Fatalf("Expected to get ErrTimeout; got %v", err)
 	}
 	if content != nil {
 		t.Fatalf("Expected content to be nil; got %v", content)

@@ -123,7 +123,7 @@ func (t *InMemTransport) Send(m usrv.Message, timeout time.Duration, expectReply
 			case resMsg = <-reqMsg.replyChan:
 			case <-timeoutChan:
 				resMsg = t.ReplyTo(reqMsg)
-				resMsg.SetContent(nil, usrv.ErrServiceUnavailable)
+				resMsg.SetContent(nil, usrv.ErrTimeout)
 			}
 		}
 

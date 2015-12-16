@@ -6,4 +6,5 @@ var (
 	ErrEndpointAlreadyBound = errors.New("Endpoint already bound")
 	ErrNoEndpointsBound     = errors.New("No endpoints bound")
 	ErrServiceUnavailable   = errors.New("Service unavailable")
+	ErrTimeout              = errors.New("Request timeout")
 )
